@@ -1,4 +1,9 @@
+import java.awt.Point;
+
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import edu.princeton.cs.algs4.Picture;
 
 public class Main {
 
@@ -18,13 +23,43 @@ public class Main {
         print2dArray(image);
         System.out.println();
         print2dArray(dp);
-
+        List<Point> minSeam = getSeamFromDp();
+        System.out.println(minSeam);
     }
 
     public static void generateDp() {
         for(int i = 0; i < image[0].length; i++) {
             findMinSeam(0, i);
         }
+    }
+
+    public static List<Point> getSeamFromDp() {
+        int min = dp[0][0];
+        int minPos = 0;
+
+        for(int i = 0; i < image[0].length; i++) {
+            if(dp[0][i] < min) {
+                min = dp[0][i];
+                minPos = i;
+            }
+        }
+
+        List<Point> result = new ArrayList<>();
+        result.add(new Point(0, minPos));
+        for(int i = 1; i < image.length; i++) {
+            int middle = dp[i][minPos];
+            int left = minPos == 0 ? Integer.MAX_VALUE : dp[i][minPos - 1];
+            int right = minPos == image[0].length - 1 ? Integer.MAX_VALUE : dp[i][minPos + 1];
+
+            if(left <= middle && left <= right) {
+                minPos = minPos - 1;
+            } else if(right <= middle) {
+                minPos = minPos + 1;
+            }
+
+            result.add(new Point(i, minPos));
+        }
+        return result;
     }
 
     public static void findMinSeam(int i, int j) {
