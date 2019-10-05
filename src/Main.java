@@ -16,11 +16,15 @@ public class Main {
         // TODO: Optimize algorithm
         // TODO: Add UI and height resizing
 
-        String filePath = "images/tower.jpg";
+        String filePath = "images/water.jpg";
         pic = new Picture(filePath);
         Picture backup = new Picture(pic);
 
-        for(int i = 1; i < 400; i++) {
+        for(int i = 1; i < 200; i++) {
+
+            if(i % 20 == 0) {
+                System.out.println(i);
+            }
             image = new double[pic.height()][pic.width()];
             dp = new double[image.length][image[0].length];
 
