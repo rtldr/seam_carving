@@ -3,6 +3,8 @@ import java.awt.Color;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.ForkJoinPool;
+
 import edu.princeton.cs.algs4.Picture;
 
 public class Main {
@@ -12,36 +14,41 @@ public class Main {
     static Picture pic;
     static int width;
     static int height;
+    public static final ForkJoinPool POOL = new ForkJoinPool();
+    static int weight;
+    static int startIndex;
 
     public static void main(String[] args) {
         // TODO: Code needs refactoring
-        // TODO: Optimize algorithm
+        // TODO: Make generateDpPara actually parallel
         // TODO: Add UI and height resizing
-
+        System.setProperty("java.util.concurrent.ForkJoinPool.common.parallelism", "20");
         String filePath = "images/water.jpg";
         pic = new Picture(filePath);
         Picture backup = new Picture(pic);
-
-        for(int i = 1; i < 400; i++) {
+        startIndex = 0;
+        width = pic.width();
+        height = pic.height();
+        for(int i = 1; i < 200; i++) {
+            weight = 0;
 
             if(i % 20 == 0) {
                 System.out.println(i);
             }
-            width = pic.width();
-            height = pic.height();
+//            width = pic.width();  //- needs to be commented when using fastRemove, uncommented otherwise
             image = new double[height][width];
             dp = new double[height][width];
 
-
-
             double[] timeResults = new double[4];
             double start = System.currentTimeMillis();
-            applyEnergy(image);
+//            applyEnergy(image);
+            applyEnergyPara();
             double end = System.currentTimeMillis();
             timeResults[0] = end - start;
 
             start = System.currentTimeMillis();
             generateDpPara();
+//            generateDp();
             end = System.currentTimeMillis();
             timeResults[1] = end - start;
 
@@ -53,7 +60,8 @@ public class Main {
 //            highlightSeam(minSeam, backup);
 
             start = System.currentTimeMillis();
-            removePixels(minSeam);
+//            removePixels(minSeam);
+            fastRemovePixels(minSeam);
             end = System.currentTimeMillis();
             timeResults[3] = end - start;
 
@@ -67,7 +75,7 @@ public class Main {
     }
 
     public static void removePixels(List<Point> minSeam) {
-        Picture newPic = new Picture(pic.width() - 1, pic.height());
+        Picture newPic = new Picture(width - 1, height);
         for(int i = 0; i < newPic.height(); i++) {
             int badColumn = (int) minSeam.get(i).getY();
             for(int j = 0; j < newPic.width(); j++) {
@@ -81,8 +89,33 @@ public class Main {
         pic = newPic;
     }
 
+    public static void fastRemovePixels(List<Point> minSeam) {
+        int modifier;
+        boolean leftHeavy = weight < 0;
+        if(leftHeavy) {
+            modifier = -1;
+            startIndex++;
+        } else {
+            modifier = 1;
+            width--;
+        }
+
+        for(int i = 0; i < height; i++) {
+            int badColumn = (int) minSeam.get(i).getY();
+            for(int j = badColumn; j < width && j >= startIndex; j = j + modifier) {
+                pic.set(j, i, pic.get(j + modifier, i));
+            }
+
+            if(leftHeavy) {
+                pic.set(startIndex, i, Color.BLACK);
+            } else {
+                pic.set(width, i, Color.BLACK);
+            }
+        }
+    }
+
     public static double energy(int x, int y) {
-        if (x == 0 || x == pic.height() - 1 || y == 0 || y == pic.width() - 1) {
+        if (x == 0 || x == height - 1 || y == startIndex || y == width - 1) {
             return Math.pow(255.0, 2) * 3;
         }
 
@@ -101,17 +134,27 @@ public class Main {
     }
 
     public static void generateDp() {
-        for(int i = 0; i < pic.width(); i++) {
+        for(int i = startIndex; i < width; i++) {
             findMinSeam(0, i);
         }
     }
 
     public static void applyEnergy(double[][] image) {
-        for(int i = 0; i < pic.height(); i++) {
-            for(int j = 0; j < pic.width(); j++) {
+        for(int i = 0; i < height; i++) {
+            for(int j = startIndex; j < width; j++) {
                 image[i][j] = energy(i, j);
             }
         }
+    }
+
+    public static void applyEnergyPara() {
+//        for(int i = 0; i < height; i++) {
+//            EnergyApplier apply = new EnergyApplier(i, startIndex, width);
+//            POOL.commonPool().invoke(apply);
+//        }
+
+        FastEnergyApplier apply = new FastEnergyApplier(0, startIndex, height, width);
+        POOL.commonPool().invoke(apply);
     }
 
     public static void highlightSeam(List<Point> minSeam, Picture pic) {
@@ -121,22 +164,24 @@ public class Main {
     }
 
     public static List<Point> getSeamFromDp() {
-        double min = dp[0][0];
-        int minPos = 0;
+        double min = dp[0][startIndex];
+        int minPos = startIndex;
 
-        for(int i = 0; i < pic.width(); i++) {
+        for(int i = startIndex; i < width; i++) {
             if(dp[0][i] < min) {
                 min = dp[0][i];
                 minPos = i;
             }
         }
 
+        weight = minPos - width / 2;
+
         List<Point> result = new ArrayList<>();
         result.add(new Point(0, minPos));
-        for(int i = 1; i < pic.height(); i++) {
+        for(int i = 1; i < height; i++) {
             double middle = dp[i][minPos];
-            double left = minPos == 0 ? Integer.MAX_VALUE : dp[i][minPos - 1];
-            double right = minPos == pic.width() - 1 ? Integer.MAX_VALUE : dp[i][minPos + 1];
+            double left = minPos == startIndex ? Integer.MAX_VALUE : dp[i][minPos - 1];
+            double right = minPos == width - 1 ? Integer.MAX_VALUE : dp[i][minPos + 1];
 
             if(left <= middle && left <= right) {
                 minPos = minPos - 1;
@@ -145,16 +190,17 @@ public class Main {
             }
 
             result.add(new Point(i, minPos));
+            weight += (minPos - width / 2);
         }
         return result;
     }
 
     public static void findMinSeam(int i, int j) {
-        if(i + 1 >= pic.height()) {  // if this is the last row
+        if(i + 1 >= height) {  // if this is the last row
             dp[i][j] = image[i][j];
         } else {  // if this is not the last row
             double left;
-            if(j == 0) {  // if there is no left
+            if(j == startIndex) {  // if there is no left
                 left = Integer.MAX_VALUE;
             } else {  // if there is a left
                 if(dp[i + 1][j - 1] == 0) {  // if we haven't found the left minSeam yet
@@ -172,7 +218,7 @@ public class Main {
 
 
             double right;
-            if(j + 1 == pic.width()) {  // if there is no right
+            if(j + 1 == width) {  // if there is no right
                 right = Integer.MAX_VALUE;
             } else {  // if there is a right
                 if(dp[i + 1][j + 1] == 0) {  // if we haven't found the right minSeam yet
@@ -185,15 +231,15 @@ public class Main {
     }
 
     private static void generateDpPara() {
-        for(int i = 0;i < width; i++) {
+        for(int i = startIndex; i < width; i++) {
             dp[height - 1][i] = image[height - 1][i];
         }
 
         for(int i = height - 2; i >= 0; i--) {
             double[] nextRow = dp[i + 1];
-            for(int j = 0; j < width; j++) {
+            for(int j = startIndex; j < width; j++) {
                 double left, mid, right;
-                if(j == 0) {
+                if(j == startIndex) {
                     left = Double.MAX_VALUE;
                 } else {
                     left = nextRow[j - 1];
